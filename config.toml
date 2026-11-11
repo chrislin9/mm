@@ -1,0 +1,103 @@
+# pmmm configuration for the Polymarket US market maker.
+# Unknown keys are rejected at startup, so a typo can't silently disable a limit.
+# The values here match the code defaults in pmmm/config.py.
+
+event_slug = "dwts-s35-elim-2026-11-10"
+
+# The elimination is decided live on air. At this instant the bot cancels everything and
+# exits. Default: 6 PM ET (23:00 UTC), two hours before the assumed 8 PM ET airtime.
+# VERIFY THE AIRTIME before running.
+trading_end_utc = "2026-11-10T23:00:00Z"
+widen_start_hours = 6.0      # spreads widen linearly over the last N hours...
+widen_max_mult = 2.0         # ...up to this multiple
+wind_down_minutes = 60.0     # reduce-only (shed inventory, add nothing) for the last N minutes
+
+# Optionally restrict the event's markets, e.g. ["rtc-dwts-s35-elim-2026-11-10-tatali"]
+include_markets = []
+exclude_markets = []
+
+api_base = "https://api.polymarket.us"
+gateway_base = "https://gateway.polymarket.us"
+ws_base = "wss://api.polymarket.us"
+state_dir = "state"          # journal (weekly loss anchor) and logs. Do not delete mid-week.
+kill_file = "KILL"           # `touch KILL` = cancel everything and stop
+max_requests_per_s = 8.0     # authenticated API (docs say 20-25/s; Cloudflare dislikes bursts)
+
+[risk]
+# Hard cap on worst-case loss per week (Mon 00:00 ET to Mon 00:00 ET). Cannot exceed 10.
+weekly_loss_limit = 10.0
+# Held back from the cap, so the bot's own worst case is $9.50.
+safety_buffer = 0.50
+max_market_risk = 4.00       # worst-case loss allowed inside one market (positions + orders)
+max_order_risk = 0.75        # worst-case loss of any single new order
+settle_lag_s = 2.0           # dead orders keep counting as risk until a resync this long after
+resync_interval_s = 2.0      # full REST reconcile (open orders -> positions -> balance)
+max_state_age_s = 8.0        # pull all quotes if account state is older than this
+max_consecutive_rejects = 6  # halt the process after this many rejects in a row
+session_soft_stop = 5.0      # mark-to-fair-value drawdown this run -> reduce-only
+include_fee_allowance = true # count a taker fee on every resting order (paranoid; maker fee is 0)
+unexplained_cash_jump = 0.25 # cash up by more than this with no fills -> freeze, re-read deposits
+inflow_refresh_s = 300.0
+
+[strategy]
+# --- fair value
+depth_filter_contracts = 5.0 # ignore book levels until this much size (not ours) accumulates
+max_book_spread = 0.12       # don't quote a market whose filtered spread is wider than this
+sibling_weight = 0.20        # weight on the sum-of-siblings estimate (sum of P(elim) = E)
+expected_eliminations = 1.0  # set to 2.0 if this week is a double elimination
+trade_weight = 0.10
+trade_halflife_s = 120.0
+flow_halflife_s = 60.0
+flow_scale_contracts = 50.0
+flow_max_shift = 0.01        # max fair-value lean toward aggressive (taker) flow
+slow_mid_halflife_s = 60.0
+
+# --- spread / inventory
+min_half_spread = 0.01
+base_half_spread = 0.015
+vol_mult = 1.0
+min_edge = 0.01              # inventory-increasing quotes sit at least this far from fair value
+reduce_edge = 0.0            # inventory-reducing quotes may sit at fair value (scratch)
+inventory_skew = 1.0
+min_price = 0.02             # no quotes outside [min_price, max_price]
+max_price = 0.98
+
+# --- adverse selection defences
+jump_threshold = 0.04        # mid moves this far from its slow average -> pull that market
+jump_cooldown_s = 45.0
+event_jump_threshold = 0.08  # one move this big -> pull the whole event
+event_jump_markets = 2       # ...or this many markets jumping within the window
+event_jump_window_s = 30.0
+event_cooldown_s = 180.0
+big_trade_contracts = 100.0  # a print this large -> pull that market
+fill_cooldown_s = 20.0       # after a fill, that side is pulled for this long...
+fade_s = 120.0               # ...then quoted fade_ticks wider for this long
+fade_ticks = 1
+max_fills_per_min = 4
+markout_horizon_s = 30.0
+markout_alpha = 0.3
+tox_k = 0.5                  # spread multiplier added per tick of adverse average markout
+tox_max_mult = 3.0
+tox_pause_markout = -0.02    # average markout worse than this -> pause market
+tox_pause_s = 600.0
+
+# --- dynamic market selection
+# Quote a market only while its depth-filtered spread leaves room to sit inside with edge AND
+# others actually trade it. Dead or one-tick markets mostly fill you when someone knows more.
+# Ineligible markets still get inventory-reducing quotes if we hold a position there.
+dynamic_market_selection = true
+min_quote_spread = 0.03      # start quoting at >= 3c filtered spread...
+exit_quote_spread = 0.02     # ...stop below 2c
+min_notional_per_hour = 1.0  # start at >= $1/h traded by others (lifetime avg blended with live)...
+activity_exit_ratio = 0.7    # ...stop below 70% of that
+activity_lookback_h = 3.0    # live volume window
+activity_prior_weight_h = 2.0  # weight, in hours, of the market's lifetime average volume
+eligibility_dwell_s = 30.0   # entry conditions must hold this long before quoting
+
+# --- order management
+order_ttl_s = 120            # every order expires on its own after this (dead-man switch)
+refresh_before_expiry_s = 40.0
+min_requote_interval_s = 2.0
+requote_size_tolerance = 0.35
+book_stale_s = 15.0          # non-live (REST/CDN) books older than this are not quoted
+tick_s = 0.5
